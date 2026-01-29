@@ -1,0 +1,17 @@
+{
+  "name": "blind-flame-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for Blind FLAME group",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.18.2",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
