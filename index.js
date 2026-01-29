@@ -1,3 +1,4 @@
+const P = require('pino');
 const { makeWASocket, DisconnectReason, useMultiFileAuthState, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const express = require('express');
@@ -31,16 +32,29 @@ let sock; // WhatsApp socket
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth_info'); // Session persistence
 
-  sock = makeWASocket({
-    auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })), // Use the silent logger here
-    },
-    printQRInTerminal: true, 
-    browser: ['EMPEROR-AI', 'Chrome', '1.0.0'],
-    // Add a logger here to stop the spammy logs
-    logger: P({ level: 'silent' }) 
-});
+      sock = makeWASocket({
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
+        },
+        printQRInTerminal: false,
+        browser: ['EMPEROR-AI', 'Chrome', '1.0.0'],
+        logger: P({ level: 'silent' })
+    });
+
+    // Pairing Code logic for single device setup
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "237678540775"; 
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                console.log(`\n\n--- YOUR PAIRING CODE: ${code} ---\n\n`);
+            } catch (error) {
+                console.log("Error requesting pairing code: ", error);
+            }
+        }, 3000);
+    }
+
 
 
   // Handle connection updates
