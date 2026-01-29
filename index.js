@@ -8,9 +8,9 @@ const path = require('path');
 
 // Express app for Render (keeps the app alive by exposing a port)
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('Bot is running!'));
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
 
 // Group-specific settings
 const GROUP_JID = '120363XXXXXXXXX@g.us'; // REPLACE WITH YOUR ACTUAL GROUP JID (e.g., from !id command)
@@ -52,7 +52,7 @@ async function startBot() {
             } catch (error) {
                 console.log("Error requesting pairing code: ", error);
             }
-        }, 3000);
+        }, 60000);
     }
 
 
