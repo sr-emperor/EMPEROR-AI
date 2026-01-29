@@ -44,7 +44,7 @@ async function startBot() {
 
     // Pairing Code logic for single device setup
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "237678540775"; 
+        const phoneNumber = "+237678540775"; 
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(phoneNumber);
@@ -52,7 +52,7 @@ async function startBot() {
             } catch (error) {
                 console.log("Error requesting pairing code: ", error);
             }
-        }, 60000);
+        }, 120000);
     }
 
 
