@@ -30,9 +30,9 @@ let sock; // WhatsApp socket
 
 // Function to start the bot
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('./auth_info'); // Session persistence
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
 
-      sock = makeWASocket({
+    sock = makeWASocket({
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
@@ -42,49 +42,37 @@ async function startBot() {
         logger: P({ level: 'silent' })
     });
 
-    // Pairing Code logic for single device setup
-    if (!sock.authState.creds.registered) {
-        const phoneNumber = "+237678540775"; 
-        setTimeout(async () => {
-            try {
-                let code = await sock.requestPairingCode(phoneNumber);
-                console.log(`\n\n--- YOUR PAIRING CODE: ${code} ---\n\n`);
-            } catch (error) {
-                console.log("Error requesting pairing code: ", error);
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom) 
+                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut 
+                : true;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) { startBot(); }
+        } else if (connection === 'open') {
+            console.log('--- CONNECTION IS NOW STABLE ---');
+            
+            if (!sock.authState.creds.registered) {
+                const phoneNumber = "237678540775"; // Your number
+                console.log("Requesting Pairing Code...");
+                setTimeout(async () => {
+                    try {
+                        let code = await sock.requestPairingCode(phoneNumber);
+                        console.log(`\n\n--- YOUR STABLE CODE: ${code} ---\n\n`);
+                    } catch (err) {
+                        console.log("Error getting code:", err.message);
+                    }
+                }, 10000); // 10 second safety buffer after opening
             }
-        }, 120000);
-    }
+        }
+    });
+}
 
-
-
-  // Handle connection updates
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      console.log('QR Code received. Scan it with WhatsApp:');
-      qrcode.generate(qr, { small: true });
-    }
-
-    if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error instanceof Boom)
-        ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
-        : true;
-      console.log('Connection closed. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) {
-        startBot(); // Auto-reconnect
-      }
-    } else if (connection === 'open') {
-      console.log('Connected to WhatsApp!');
-    }
-  });
-
-  // Save credentials on update
-  sock.ev.on('creds.update', saveCreds);
-
-  // Handle group participant updates (for welcome)
-  sock.ev.on('group-participants.update', async (update) => {
-    const { id, participants, action } = update;
+t { id, participants, action } = update;
     if (id !== GROUP_JID || action !== 'add') return; // Only for joins in our group
 
     try {
