@@ -33,12 +33,15 @@ async function startBot() {
 
   sock = makeWASocket({
     auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, {}),
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })), // Use the silent logger here
     },
-    printQRInTerminal: true, // QR code in terminal
-    browser: ['Blind FLAME Bot', 'Chrome', '1.0.0'], // Custom browser info
-  });
+    printQRInTerminal: true, 
+    browser: ['EMPEROR-AI', 'Chrome', '1.0.0'],
+    // Add a logger here to stop the spammy logs
+    logger: P({ level: 'silent' }) 
+});
+
 
   // Handle connection updates
   sock.ev.on('connection.update', async (update) => {
