@@ -1,16 +1,14 @@
-const P = require('pino');
 const { makeWASocket, DisconnectReason, useMultiFileAuthState, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const express = require('express');
-const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 
 // Express app for Render (keeps the app alive by exposing a port)
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot is running!'));
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // Group-specific settings
 const GROUP_JID = '120363XXXXXXXXX@g.us'; // REPLACE WITH YOUR ACTUAL GROUP JID (e.g., from !id command)
@@ -24,55 +22,64 @@ const GROUP_RULES = `
 5. Do NOT mention the group in your WhatsApp status. Failure to do so results in auto-removal.
 `;
 
+// Phone number for pairing (hardcoded as provided; use env var for security)
+const PHONE_NUMBER = '237678540775';
+
 // In-memory storage (resets on restart; use a DB for persistence)
 let warnings = {}; // { userJid: count }
 let sock; // WhatsApp socket
+let pairingRequested = false; // Flag to prevent multiple pairing requests
 
 // Function to start the bot
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
+  const { state, saveCreds } = await useMultiFileAuthState('./auth_info'); // Session persistence
 
-    sock = makeWASocket({
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' })),
-        },
-        printQRInTerminal: false,
-        browser: ['EMPEROR-AI', 'Chrome', '1.0.0'],
-        logger: P({ level: 'silent' })
-    });
+  sock = makeWASocket({
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, {}),
+    },
+    browser: ['Blind FLAME Bot', 'Chrome', '1.0.0'], // Custom browser info
+  });
 
-    sock.ev.on('creds.update', saveCreds);
+  // Handle connection updates
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update;
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+    if (connection === 'close') {
+      const shouldReconnect = (lastDisconnect?.error instanceof Boom)
+        ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
+        : true;
+      console.log('Connection closed. Reconnecting:', shouldReconnect);
+      if (shouldReconnect) {
+        pairingRequested = false; // Reset flag on reconnect to allow re-pairing if needed
+        startBot(); // Auto-reconnect
+      }
+    } else if (connection === 'open') {
+      console.log('Connected to WhatsApp!');
+    }
+  });
 
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom) 
-                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut 
-                : true;
-            console.log('Connection closed. Reconnecting:', shouldReconnect);
-            if (shouldReconnect) { startBot(); }
-        } else if (connection === 'open') {
-            console.log('--- CONNECTION IS NOW STABLE ---');
-            
-            if (!sock.authState.creds.registered) {
-                const phoneNumber = "237678540775"; // Your number
-                console.log("Requesting Pairing Code...");
-                setTimeout(async () => {
-                    try {
-                        let code = await sock.requestPairingCode(phoneNumber);
-                        console.log(`\n\n--- YOUR STABLE CODE: ${code} ---\n\n`);
-                    } catch (err) {
-                        console.log("Error getting code:", err.message);
-                    }
-                }, 10000); // 10 second safety buffer after opening
-            }
-        }
-    });
-}
+  // Save credentials on update
+  sock.ev.on('creds.update', saveCreds);
 
-t { id, participants, action } = update;
+  // Request pairing code for one-device mode (only once per session)
+  if (!sock.authState.creds.registered && !pairingRequested) {
+    pairingRequested = true; // Set flag to prevent multiple requests
+    try {
+      const code = await sock.requestPairingCode(PHONE_NUMBER);
+      console.log(`🔗 Pairing code for ${PHONE_NUMBER}: ${code}`);
+      console.log('📱 Open WhatsApp on your device > Linked Devices > Link a Device, and enter this 6-digit code IMMEDIATELY. It expires in ~1-2 minutes. Do NOT restart the bot until linked or expired.');
+    } catch (error) {
+      console.error('❌ Error requesting pairing code:', error.message);
+      console.log('🔄 Pairing failed. Restart the bot to try again.');
+      // No retry loop; manual restart required to prevent spam
+    }
+  }
+
+  // Handle group participant updates (for welcome)
+  sock.ev.on('group-participants.update', async (update) => {
+    const { id, participants, action } = update;
     if (id !== GROUP_JID || action !== 'add') return; // Only for joins in our group
 
     try {
