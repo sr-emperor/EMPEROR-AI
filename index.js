@@ -6,7 +6,7 @@ const { SocksProxyAgent } = require('socks-proxy-agent');
 // Hardcoded values (replace as needed)
 const GROUP_ID = 'YOUR_GROUP_ID_HERE'; // Replace with actual group ID (e.g., '120363XXXXXX@g.us'). Run the bot once and log it.
 const PHONE_NUMBER = '237678540775@c.us'; // Your phone number in WhatsApp format
-const SOCKS5_PROXY = 'socks5://your-proxy-ip:port'; // Replace with your SOCKS5 proxy (e.g., 'socks5://127.0.0.1:1080'). Remove if not using.
+const proxyUrl = "socks5://123.123.123.123:1080";
 
 // In-memory storage (resets on restart)
 let warnings = {}; // { userId: count }
