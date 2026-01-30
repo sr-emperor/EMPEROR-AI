@@ -29,6 +29,7 @@ const PHONE_NUMBER = '237678540775';
 let warnings = {}; // { userJid: count }
 let sock; // WhatsApp socket
 let pairingRequested = false; // Flag to prevent multiple pairing requests
+let reconnectTimeout; // To manage delayed reconnects
 
 // Function to start the bot
 async function startBot() {
@@ -44,38 +45,50 @@ async function startBot() {
 
   // Handle connection updates
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    console.log(`Connection update: ${connection}`); // Debug log
 
     if (connection === 'close') {
       const shouldReconnect = (lastDisconnect?.error instanceof Boom)
         ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
         : true;
-      console.log('Connection closed. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) {
-        pairingRequested = false; // Reset flag on reconnect to allow re-pairing if needed
-        startBot(); // Auto-reconnect
+      console.log('Connection closed. Reason:', lastDisconnect?.error?.message || 'Unknown');
+      console.log('Reconnecting in 10 seconds to prevent loops...');
+      
+      // Clear any existing timeout
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      
+      // Delay reconnect to avoid death loop
+      reconnectTimeout = setTimeout(() => {
+        pairingRequested = false; // Reset flag for potential re-pairing
+        startBot();
+      }, 10000); // 10-second delay
+    } else if (connection === 'connecting') {
+      console.log('Connecting to WhatsApp...');
+      // Request pairing only here if not registered and not already requested
+      if (!sock.authState.creds.registered && !pairingRequested) {
+        pairingRequested = true;
+        try {
+          const code = await sock.requestPairingCode(PHONE_NUMBER);
+          console.log(`🔗 Pairing code for ${PHONE_NUMBER}: ${code}`);
+          console.log('📱 Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device. Expires in ~1-2 minutes.');
+        } catch (error) {
+          console.error('❌ Pairing error:', error.message);
+          if (error.output?.statusCode === 428) {
+            console.log('⚠️ Precondition Required (428): Device not ready for pairing. Wait and restart manually.');
+          }
+          pairingRequested = false; // Allow retry on next stable connection
+        }
       }
     } else if (connection === 'open') {
-      console.log('Connected to WhatsApp!');
+      console.log('✅ Connected to WhatsApp!');
+      pairingRequested = false; // Reset for future use if needed
     }
   });
 
   // Save credentials on update
   sock.ev.on('creds.update', saveCreds);
-
-  // Request pairing code for one-device mode (only once per session)
-  if (!sock.authState.creds.registered && !pairingRequested) {
-    pairingRequested = true; // Set flag to prevent multiple requests
-    try {
-      const code = await sock.requestPairingCode(PHONE_NUMBER);
-      console.log(`🔗 Pairing code for ${PHONE_NUMBER}: ${code}`);
-      console.log('📱 Open WhatsApp on your device > Linked Devices > Link a Device, and enter this 6-digit code IMMEDIATELY. It expires in ~1-2 minutes. Do NOT restart the bot until linked or expired.');
-    } catch (error) {
-      console.error('❌ Error requesting pairing code:', error.message);
-      console.log('🔄 Pairing failed. Restart the bot to try again.');
-      // No retry loop; manual restart required to prevent spam
-    }
-  }
 
   // Handle group participant updates (for welcome)
   sock.ev.on('group-participants.update', async (update) => {
