@@ -79,38 +79,39 @@ async function startBot() {
       }, 10000); // 10 seconds
     } else if (connection === 'connecting') {
       console.log('🔗 Connecting to WhatsApp...');
-      // Request pairing only here if not registered, not already requested, and attempts < 3
-      if (!sock.authState.creds.registered && !pairingRequested && pairingAttempts < 3) {
-        pairingRequested = true;
-        pairingAttempts++;
-        try {
-          const code = await sock.requestPairingCode(PHONE_NUMBER);
-          console.log(`🔢 Pairing code for ${PHONE_NUMBER}: ${code}`);
-          console.log('📱 Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device. Expires in ~1-2 minutes.');
-        } catch (error) {
-          console.error('❌ Pairing error:', error.message);
-          if (error.output?.statusCode === 428 || error.message.includes('Wrong Number')) {
-            console.log('⚠️ Precondition Required (428) or Wrong Number detected. Clearing session and retrying...');
-            clearSession();
-            pairingRequested = false; // Allow retry after clear
-          }
-          if (pairingAttempts >= 3) {
-            console.log('🚫 Max pairing attempts reached. Clear session manually and restart.');
-          }
-        }
-      }
+      // No pairing request here; wait for 'open'
     } else if (connection === 'open') {
-      console.log('✅ Connected to WhatsApp! Stabilizing for 120 seconds...');
+      console.log('✅ Connected to WhatsApp! Stabilizing for 120 seconds before pairing...');
       pairingRequested = false; // Reset for future use
       pairingAttempts = 0;
 
       // Clear any existing stabilization timeout
       if (stabilizationTimeout) clearTimeout(stabilizationTimeout);
       
-      // 120-second delay after 'open' to ensure full stabilization
-      stabilizationTimeout = setTimeout(() => {
-        console.log('🚀 Bot fully stabilized. Ready for operations.');
-        // Bot operations (e.g., message handling) can proceed here if needed
+      // 120-second delay after 'open' before requesting pairing code
+      stabilizationTimeout = setTimeout(async () => {
+        console.log('🚀 Stabilization complete. Checking for pairing...');
+        if (!sock.authState.creds.registered && !pairingRequested && pairingAttempts < 3) {
+          pairingRequested = true;
+          pairingAttempts++;
+          try {
+            const code = await sock.requestPairingCode(PHONE_NUMBER);
+            console.log(`🔢 Pairing code for ${PHONE_NUMBER}: ${code}`);
+            console.log('📱 Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device. Expires in ~1-2 minutes.');
+          } catch (error) {
+            console.error('❌ Pairing error:', error.message);
+            if (error.output?.statusCode === 428 || error.message.includes('Wrong Number')) {
+              console.log('⚠️ Precondition Required (428) or Wrong Number detected. Clearing session and retrying...');
+              clearSession();
+              pairingRequested = false; // Allow retry after clear
+            }
+            if (pairingAttempts >= 3) {
+              console.log('🚫 Max pairing attempts reached. Clear session manually and restart.');
+            }
+          }
+        } else if (sock.authState.creds.registered) {
+          console.log('🔄 Already registered. Bot is ready.');
+        }
       }, 120000); // 120 seconds
     }
   });
@@ -118,7 +119,7 @@ async function startBot() {
   // Save credentials on update
   sock.ev.on('creds.update', saveCreds);
 
-  // Handle group participant updates (for welcome) - Only after stabilization if needed, but kept as-is for now
+  // Handle group participant updates (for welcome)
   sock.ev.on('group-participants.update', async (update) => {
     const { id, participants, action } = update;
     if (id !== GROUP_JID || action !== 'add') return; // Only for joins in our group
@@ -148,7 +149,7 @@ ${GROUP_RULES}
     }
   });
 
-  // Handle messages - Only after stabilization if needed, but kept as-is for now
+  // Handle messages
   sock.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
     if (!msg.message || msg.key.fromMe) return; // Ignore own messages
