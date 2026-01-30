@@ -4,7 +4,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-// Express app for Render (keeps the app alive by exposing a port)
+// Express app for Railway (keeps the app alive by exposing a port)
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot is running!'));
@@ -184,7 +184,7 @@ ${GROUP_RULES}
         await sock.sendMessage(chatId, { delete: msg.key });
 
         // Send warning
-        warnings[sender] = (warnings[sender] || 0) + 1;
+        warnings[sender] = (warnings[sender) || 0) + 1;
         const warnCount = warnings[sender];
         await sock.sendMessage(chatId, {
           text: `⚠️ @${sender.split('@')[0]}, your message contained offensive content. Warning ${warnCount}/3.`,
