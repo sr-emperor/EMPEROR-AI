@@ -29,7 +29,18 @@ const PHONE_NUMBER = '237678540775';
 let warnings = {}; // { userJid: count }
 let sock; // WhatsApp socket
 let pairingRequested = false; // Flag to prevent multiple pairing requests
+let pairingAttempts = 0; // Track pairing attempts to detect corruption
 let reconnectTimeout; // To manage delayed reconnects
+let stabilizationTimeout; // For 120-second delay after 'open'
+
+// Function to clear corrupted session (for "Wrong Number" issues)
+function clearSession() {
+  const authPath = './auth_info';
+  if (fs.existsSync(authPath)) {
+    fs.rmSync(authPath, { recursive: true, force: true });
+    console.log('🗑️ Cleared corrupted session data. Restart the bot to re-pair.');
+  }
+}
 
 // Function to start the bot
 async function startBot() {
@@ -45,52 +56,69 @@ async function startBot() {
 
   // Handle connection updates
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    const { connection, lastDisconnect } = update;
 
-    console.log(`Connection update: ${connection}`); // Debug log
+    console.log(`🔄 Connection update: ${connection}`); // Debug log
 
     if (connection === 'close') {
       const shouldReconnect = (lastDisconnect?.error instanceof Boom)
         ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
         : true;
-      console.log('Connection closed. Reason:', lastDisconnect?.error?.message || 'Unknown');
-      console.log('Reconnecting in 10 seconds to prevent loops...');
+      console.log('❌ Connection closed. Reason:', lastDisconnect?.error?.message || 'Unknown');
+      console.log('⏳ Reconnecting in 10 seconds to prevent loops...');
       
-      // Clear any existing timeout
+      // Clear any existing timeouts
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (stabilizationTimeout) clearTimeout(stabilizationTimeout);
       
-      // Delay reconnect to avoid death loop
+      // 10-second cool-down before reconnect
       reconnectTimeout = setTimeout(() => {
-        pairingRequested = false; // Reset flag for potential re-pairing
+        pairingRequested = false; // Reset flags
+        pairingAttempts = 0;
         startBot();
-      }, 10000); // 10-second delay
+      }, 10000); // 10 seconds
     } else if (connection === 'connecting') {
-      console.log('Connecting to WhatsApp...');
-      // Request pairing only here if not registered and not already requested
-      if (!sock.authState.creds.registered && !pairingRequested) {
+      console.log('🔗 Connecting to WhatsApp...');
+      // Request pairing only here if not registered, not already requested, and attempts < 3
+      if (!sock.authState.creds.registered && !pairingRequested && pairingAttempts < 3) {
         pairingRequested = true;
+        pairingAttempts++;
         try {
           const code = await sock.requestPairingCode(PHONE_NUMBER);
-          console.log(`🔗 Pairing code for ${PHONE_NUMBER}: ${code}`);
+          console.log(`🔢 Pairing code for ${PHONE_NUMBER}: ${code}`);
           console.log('📱 Enter this 6-digit code in WhatsApp > Linked Devices > Link a Device. Expires in ~1-2 minutes.');
         } catch (error) {
           console.error('❌ Pairing error:', error.message);
-          if (error.output?.statusCode === 428) {
-            console.log('⚠️ Precondition Required (428): Device not ready for pairing. Wait and restart manually.');
+          if (error.output?.statusCode === 428 || error.message.includes('Wrong Number')) {
+            console.log('⚠️ Precondition Required (428) or Wrong Number detected. Clearing session and retrying...');
+            clearSession();
+            pairingRequested = false; // Allow retry after clear
           }
-          pairingRequested = false; // Allow retry on next stable connection
+          if (pairingAttempts >= 3) {
+            console.log('🚫 Max pairing attempts reached. Clear session manually and restart.');
+          }
         }
       }
     } else if (connection === 'open') {
-      console.log('✅ Connected to WhatsApp!');
-      pairingRequested = false; // Reset for future use if needed
+      console.log('✅ Connected to WhatsApp! Stabilizing for 120 seconds...');
+      pairingRequested = false; // Reset for future use
+      pairingAttempts = 0;
+
+      // Clear any existing stabilization timeout
+      if (stabilizationTimeout) clearTimeout(stabilizationTimeout);
+      
+      // 120-second delay after 'open' to ensure full stabilization
+      stabilizationTimeout = setTimeout(() => {
+        console.log('🚀 Bot fully stabilized. Ready for operations.');
+        // Bot operations (e.g., message handling) can proceed here if needed
+      }, 120000); // 120 seconds
     }
   });
 
   // Save credentials on update
   sock.ev.on('creds.update', saveCreds);
 
-  // Handle group participant updates (for welcome)
+  // Handle group participant updates (for welcome) - Only after stabilization if needed, but kept as-is for now
   sock.ev.on('group-participants.update', async (update) => {
     const { id, participants, action } = update;
     if (id !== GROUP_JID || action !== 'add') return; // Only for joins in our group
@@ -120,7 +148,7 @@ ${GROUP_RULES}
     }
   });
 
-  // Handle messages
+  // Handle messages - Only after stabilization if needed, but kept as-is for now
   sock.ev.on('messages.upsert', async (m) => {
     const msg = m.messages[0];
     if (!msg.message || msg.key.fromMe) return; // Ignore own messages
